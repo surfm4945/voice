@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Burger House — Voice Ordering</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f172a;
+      --surface:  #1e293b;
+      --border:   #334155;
+      --accent:   #6366f1;
+      --accent2:  #818cf8;
+      --emerald:  #10b981;
+      --red:      #ef4444;
+      --text:     #f1f5f9;
+      --sub:      #94a3b8;
+      --muted:    #475569;
+      --radius:   14px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo h1 { font-size: 16px; font-weight: 700; }
+    .logo p  { font-size: 11px; color: var(--sub); margin-top: 1px; }
+    .status-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 14px; font-size: 12px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); transition: background .3s;
+    }
+    .dot.live { background: var(--emerald); box-shadow: 0 0 0 3px rgba(16,185,129,.2); animation: pulse-dot 2s infinite; }
+    @keyframes pulse-dot { 0%,100% { box-shadow: 0 0 0 3px rgba(16,185,129,.2); } 50% { box-shadow: 0 0 0 6px rgba(16,185,129,.05); } }
+
+    /* ── Main layout ── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    /* ── Left — voice panel ── */
+    .voice-panel {
+      display: flex; flex-direction: column;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    /* Agent strip */
+    .agent-strip {
+      display: flex; align-items: center; gap: 14px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .agent-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 16px; color: white;
+      flex-shrink: 0; transition: box-shadow .3s;
+    }
+    .agent-avatar.speaking { box-shadow: 0 0 0 4px rgba(99,102,241,.35); }
+    .agent-name { font-weight: 600; font-size: 14px; }
+    .agent-state { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+    /* Waveform */
+    .waveform {
+      display: flex; align-items: center; gap: 3px;
+      height: 32px; margin-left: auto;
+    }
+    .bar {
+      width: 4px; border-radius: 4px;
+      background: var(--muted);
+      height: 6px;
+      transition: height .12s ease, background .3s;
+    }
+    .bar.active { background: var(--accent2); }
+
+    /* Transcript */
+    .transcript {
+      flex: 1; overflow-y: auto;
+      padding: 20px 24px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .transcript::-webkit-scrollbar { width: 5px; }
+    .transcript::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      color: var(--muted); text-align: center;
+    }
+    .empty-state .icon { font-size: 42px; opacity: .5; }
+
+    .bubble-row { display: flex; gap: 10px; }
+    .bubble-row.user { flex-direction: row-reverse; }
+    .avatar-sm {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .avatar-ai  { background: var(--accent); color: white; }
+    .avatar-usr { background: var(--muted); color: white; }
+    .bubble {
+      max-width: 70%; padding: 10px 14px; border-radius: 18px;
+      font-size: 13px; line-height: 1.5;
+    }
+    .bubble-ai  { background: var(--surface); border-radius: 18px 18px 18px 4px; }
+    .bubble-usr { background: var(--accent);  border-radius: 18px 18px 4px 18px; }
+
+    .typing-dots { display: flex; gap: 4px; align-items: center; padding: 4px 2px; }
+    .typing-dots span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent2); animation: bounce .9s infinite;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: .15s; }
+    .typing-dots span:nth-child(3) { animation-delay: .30s; }
+    @keyframes bounce { 0%,80%,100% { transform: scaleY(.6); } 40% { transform: scaleY(1); } }
+
+    /* Controls */
+    .controls {
+      padding: 20px 24px;
+      border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    .mic-btn {
+      width: 72px; height: 72px; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--accent); color: white;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 20px rgba(99,102,241,.35);
+      transition: background .2s, transform .15s, box-shadow .2s;
+      position: relative;
+    }
+    .mic-btn:hover { transform: scale(1.05); }
+    .mic-btn.listening { background: var(--red); box-shadow: 0 4px 20px rgba(239,68,68,.4); }
+    .mic-btn.disabled { background: var(--muted); cursor: not-allowed; box-shadow: none; }
+    .mic-btn svg { width: 30px; height: 30px; }
+    .ring {
+      position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid var(--red); opacity: 0;
+      animation: ring-pulse 1.4s infinite;
+    }
+    @keyframes ring-pulse { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(1.4); opacity: 0; } }
+
+    .mic-label { font-size: 12px; color: var(--sub); }
+
+    .latency-strip {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 999px; padding: 5px 14px; font-size: 11px; color: var(--sub);
+    }
+    .latency-strip .val { color: #fbbf24; font-weight: 600; font-family: monospace; }
+    .latency-strip .good { color: var(--emerald); font-weight: 700; }
+
+    /* ── Right — order panel ── */
+    .order-panel {
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .order-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700; font-size: 14px;
+    }
+    .order-items { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+    .order-items::-webkit-scrollbar { width: 4px; }
+    .order-items::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .empty-cart { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
+    .order-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 14px;
+    }
+    .order-item-name { font-size: 13px; font-weight: 600; }
+    .order-item-qty  { font-size: 11px; color: var(--sub); margin-top: 2px; }
+    .order-item-price { font-size: 13px; font-weight: 700; color: var(--emerald); }
+
+    .order-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .total-row { display: flex; justify-content: space-between; align-items: center; }
+    .total-label { font-size: 13px; color: var(--sub); }
+    .total-value { font-size: 20px; font-weight: 800; color: white; }
+
+    .btn {
+      width: 100%; padding: 12px; border: none; border-radius: 10px;
+      font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s, opacity .2s;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-confirm { background: var(--emerald); color: white; }
+    .btn-confirm:hover:not(:disabled) { background: #059669; }
+    .btn-cancel  { background: var(--surface); color: var(--sub); border: 1px solid var(--border); }
+    .btn-cancel:hover:not(:disabled)  { background: var(--border); color: var(--text); }
+
+    /* Connect overlay */
+    .connect-overlay {
+      position: fixed; inset: 0; background: rgba(15,23,42,.9);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; backdrop-filter: blur(4px);
+    }
+    .connect-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 36px; max-width: 360px; width: 90%;
+      text-align: center; display: flex; flex-direction: column; gap: 16px;
+    }
+    .connect-box h2 { font-size: 20px; font-weight: 800; }
+    .connect-box p  { font-size: 13px; color: var(--sub); line-height: 1.6; }
+    .connect-box input {
+      width: 100%; padding: 11px 14px; border-radius: 10px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); font-size: 13px; outline: none;
+      transition: border-color .2s;
+    }
+    .connect-box input:focus { border-color: var(--accent); }
+    .btn-connect {
+      background: var(--accent); color: white; border: none;
+      border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-connect:hover { background: #4f46e5; }
+    .connect-error { color: var(--red); font-size: 12px; min-height: 16px; }
+
+    /* Stack info */
+    .stack-info {
+      display: flex; justify-content: center; gap: 16px;
+      padding: 10px 24px;
+      border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--muted);
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Connect overlay ─────────────────────────────────────────────────────── -->
+<div class="connect-overlay" id="overlay">
+  <div class="connect-box">
+    <div style="font-size:40px">🎙️</div>
+    <h2>Burger House</h2>
+    <p>Connect to the AI voice ordering system.<br>Make sure your agent is running locally.</p>
+    <input id="lk-url"    type="text" placeholder="LiveKit URL (ws://localhost:7880)" />
+    <input id="lk-key"    type="text" placeholder="API Key (devkey)" />
+    <input id="lk-secret" type="text" placeholder="API Secret (devsecret)" />
+    <div class="connect-error" id="connect-error"></div>
+    <button class="btn-connect" onclick="connect()">Connect to Agent</button>
+  </div>
+</div>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🍔</div>
+    <div>
+      <h1>Burger House</h1>
+      <p>AI Voice Ordering System</p>
+    </div>
+  </div>
+  <div class="status-pill">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">Not connected</span>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Left: voice -->
+  <section class="voice-panel">
+
+    <!-- Agent strip -->
+    <div class="agent-strip">
+      <div class="agent-avatar" id="agent-avatar">AI</div>
+      <div>
+        <div class="agent-name">Aria</div>
+        <div class="agent-state" id="agent-state">Offline</div>
+      </div>
+      <div class="waveform" id="waveform">
+        <div class="bar" style="height:10px"></div>
+        <div class="bar" style="height:16px"></div>
+        <div class="bar" style="height:24px"></div>
+        <div class="bar" style="height:18px"></div>
+        <div class="bar" style="height:30px"></div>
+        <div class="bar" style="height:22px"></div>
+        <div class="bar" style="height:14px"></div>
+        <div class="bar" style="height:26px"></div>
+        <div class="bar" style="height:20px"></div>
+        <div class="bar" style="height:12px"></div>
+        <div class="bar" style="height:28px"></div>
+        <div class="bar" style="height:16px"></div>
+      </div>
+    </div>
+
+    <!-- Transcript -->
+    <div class="transcript" id="transcript">
+      <div class="empty-state" id="empty-state">
+        <div class="icon">🎙️</div>
+        <p>Connecting to Aria…<br>speak naturally to place your order.</p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="mic-btn disabled" id="mic-btn" onclick="toggleMic()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8"  y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <div class="mic-label" id="mic-label">Connect to start</div>
+
+      <div class="latency-strip">
+        <span>STT</span><span class="val">~0.6s</span>
+        <span>·</span>
+        <span>LLM</span><span class="val">~0.8s</span>
+        <span>·</span>
+        <span>TTS</span><span class="val">~0.4s</span>
+        <span>·</span>
+        <span class="good">~1.8s total</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Right: order panel -->
+  <aside class="order-panel">
+    <div class="order-header">🛒 Your Order</div>
+
+    <div class="order-items" id="order-items">
+      <div class="empty-cart">Your cart is empty.<br>Tell Aria what you'd like!</div>
+    </div>
+
+    <div class="order-footer">
+      <div class="total-row">
+        <span class="total-label">Total</span>
+        <span class="total-value" id="order-total">Rs 0</span>
+      </div>
+      <button class="btn btn-confirm" id="btn-confirm" disabled onclick="sendConfirm()">
+        ✓ Confirm Order
+      </button>
+      <button class="btn btn-cancel"  id="btn-cancel"  disabled onclick="sendCancel()">
+        ✗ Cancel Order
+      </button>
+    </div>
+  </aside>
+</main>
+
+<!-- Stack info -->
+<div class="stack-info">
+  <span>Deepgram Nova-2 · Diarization ON</span>
+  <span>Gemini 1.5 Flash</span>
+  <span>ElevenLabs Turbo v2.5</span>
+  <span>LiveKit WebRTC</span>
+</div>
+
+
+<script>
+// ── LiveKit globals ────────────────────────────────────────────────────────
+const { Room, RoomEvent, Track, TrackEvent } = LivekitClient;
+
+let room        = null;
+let micTrack    = null;
+let isMuted     = false;
+let cartItems   = [];   // { name, qty, price }
+
+// ── Connect ────────────────────────────────────────────────────────────────
+async function connect() {
+  const url    = document.getElementById('lk-url').value.trim()    || 'ws://localhost:7880';
+  const key    = document.getElementById('lk-key').value.trim()    || 'devkey';
+  const secret = document.getElementById('lk-secret').value.trim() || 'devsecret';
+  const errEl  = document.getElementById('connect-error');
+  errEl.textContent = '';
+
+  // Generate a token via the LiveKit server (dev server auto-accepts)
+  try {
+    const token = btoa(JSON.stringify({ key, roomName: 'order-room', identity: 'customer-' + Date.now() }));
+    room = new Room({ adaptiveStream: true, dynacast: true });
+
+    room.on(RoomEvent.Connected,        onConnected);
+    room.on(RoomEvent.Disconnected,     onDisconnected);
+    room.on(RoomEvent.TrackSubscribed,  onTrackSubscribed);
+    room.on(RoomEvent.DataReceived,     onDataReceived);
+    room.on(RoomEvent.ActiveSpeakersChanged, onSpeakers);
+
+    await room.connect(url, token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    micTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+
+    document.getElementById('overlay').style.display = 'none';
+  } catch (err) {
+    errEl.textContent = 'Connection failed: ' + (err.message || err);
+  }
+}
+
+// ── Room events ────────────────────────────────────────────────────────────
+function onConnected() {
+  setStatus(true);
+  document.getElementById('agent-state').textContent = 'Ready — speak to order';
+  document.getElementById('mic-btn').classList.remove('disabled');
+  document.getElementById('mic-label').textContent = 'Tap to mute';
+  removeEmptyState();
+}
+
+function onDisconnected() {
+  setStatus(false);
+  document.getElementById('agent-state').textContent = 'Offline';
+  document.getElementById('mic-btn').classList.add('disabled');
+  document.getElementById('mic-label').textContent = 'Connect to start';
+}
+
+function onTrackSubscribed(track) {
+  if (track.kind === Track.Kind.Audio) {
+    track.attach();   // play agent audio
+  }
+}
+
+// Receive structured cart updates from the agent via data channel
+function onDataReceived(data) {
+  try {
+    const msg = JSON.parse(new TextDecoder().decode(data));
+    if (msg.type === 'cart_update') updateCart(msg.items);
+    if (msg.type === 'transcript')  addBubble(msg.role, msg.text);
+  } catch (_) {}
+}
+
+function onSpeakers(speakers) {
+  const agentSpeaking = speakers.some(s => s.identity !== room?.localParticipant?.identity);
+  animateWaveform(agentSpeaking);
+  document.getElementById('agent-avatar').classList.toggle('speaking', agentSpeaking);
+  if (agentSpeaking) document.getElementById('agent-state').textContent = 'Speaking…';
+  else               document.getElementById('agent-state').textContent = 'Listening…';
+}
+
+// ── Mic toggle ─────────────────────────────────────────────────────────────
+function toggleMic() {
+  if (!room || document.getElementById('mic-btn').classList.contains('disabled')) return;
+  isMuted = !isMuted;
+  room.localParticipant.setMicrophoneEnabled(!isMuted);
+  const btn = document.getElementById('mic-btn');
+  btn.classList.toggle('listening', !isMuted);
+  document.getElementById('mic-label').textContent = isMuted ? 'Unmute' : 'Tap to mute';
+}
+
+// ── Transcript bubbles ─────────────────────────────────────────────────────
+function removeEmptyState() {
+  const el = document.getElementById('empty-state');
+  if (el) el.remove();
+}
+
+function addBubble(role, text) {
+  removeEmptyState();
+  const container = document.getElementById('transcript');
+  const row = document.createElement('div');
+  row.className = `bubble-row ${role === 'user' ? 'user' : ''}`;
+  row.innerHTML = `
+    <div class="avatar-sm ${role === 'agent' ? 'avatar-ai' : 'avatar-usr'}">${role === 'agent' ? 'AI' : 'U'}</div>
+    <div class="bubble ${role === 'agent' ? 'bubble-ai' : 'bubble-usr'}">${text}</div>
+  `;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Cart rendering ─────────────────────────────────────────────────────────
+function updateCart(items) {
+  cartItems = items || [];
+  const container = document.getElementById('order-items');
+  if (!cartItems.length) {
+    container.innerHTML = '<div class="empty-cart">Your cart is empty.<br>Tell Aria what you\'d like!</div>';
+    document.getElementById('order-total').textContent = 'Rs 0';
+    document.getElementById('btn-confirm').disabled = true;
+    document.getElementById('btn-cancel').disabled  = true;
+    return;
+  }
+  const total = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
+  container.innerHTML = cartItems.map(i => `
+    <div class="order-item">
+      <div>
+        <div class="order-item-name">${i.name}</div>
+        <div class="order-item-qty">× ${i.qty}</div>
+      </div>
+      <div class="order-item-price">Rs ${(i.price * i.qty).toLocaleString()}</div>
+    </div>
+  `).join('');
+  document.getElementById('order-total').textContent = `Rs ${total.toLocaleString()}`;
+  document.getElementById('btn-confirm').disabled = false;
+  document.getElementById('btn-cancel').disabled  = false;
+}
+
+// ── Confirm / cancel via data channel ─────────────────────────────────────
+function sendConfirm() {
+  if (!room) return;
+  room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ action: 'confirm' })), { reliable: true });
+}
+function sendCancel() {
+  if (!room) return;
+  room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ action: 'cancel' })),  { reliable: true });
+  updateCart([]);
+}
+
+// ── Status helpers ─────────────────────────────────────────────────────────
+function setStatus(live) {
+  document.getElementById('status-dot').className  = `dot ${live ? 'live' : ''}`;
+  document.getElementById('status-text').textContent = live ? 'Agent live' : 'Not connected';
+}
+
+// ── Waveform animation ────────────────────────────────────────────────────
+let waveInterval = null;
+const heights = [10,16,24,18,30,22,14,26,20,12,28,16];
+function animateWaveform(active) {
+  const bars = document.querySelectorAll('.waveform .bar');
+  clearInterval(waveInterval);
+  if (!active) {
+    bars.forEach((b, i) => { b.style.height = heights[i] + 'px'; b.classList.remove('active'); });
+    return;
+  }
+  bars.forEach(b => b.classList.add('active'));
+  waveInterval = setInterval(() => {
+    bars.forEach(b => { b.style.height = (4 + Math.random() * 28) + 'px'; });
+  }, 80);
+}
+
+// Auto-fill defaults for local dev
+document.getElementById('lk-url').value    = 'ws://localhost:7880';
+document.getElementById('lk-key').value    = 'devkey';
+document.getElementById('lk-secret').value = 'devsecret';
+</script>
+</body>
+</html>

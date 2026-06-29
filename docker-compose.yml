@@ -1,0 +1,65 @@
+version: "3.9"
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── LiveKit Server ──────────────────────────────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"     # WebSocket / HTTP
+      - "7881:7881"     # RTC / TURN (TCP)
+      - "7882:7882/udp" # RTC / TURN (UDP)
+    environment:
+      - LIVEKIT_KEYS=devkey:devsecret
+    restart: unless-stopped
+
+  # ── Voice Agent ─────────────────────────────────────────────────────────────
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python agent.py dev
+    depends_on:
+      - livekit
+    env_file: .env
+    environment:
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=devsecret
+      - DATABASE_URL=sqlite:////data/restaurant.db
+    volumes:
+      - db_data:/data
+    restart: unless-stopped
+
+  # ── Streamlit Dashboard ─────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: streamlit run streamlit_app.py --server.port 8501 --server.headless true
+    ports:
+      - "8501:8501"
+    depends_on:
+      - agent
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite:////data/restaurant.db
+    volumes:
+      - db_data:/data
+    restart: unless-stopped
+
+  # ── Frontend (static HTML served via Nginx) ─────────────────────────────────
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  db_data:
+    driver: local
